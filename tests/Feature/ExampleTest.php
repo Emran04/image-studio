@@ -12,5 +12,6 @@ test('the application returns a successful response', function () {
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('Home')
             ->where('appName', 'Example Application')
+            ->where('adminLoginUrl', '/admin-login')
         );
 });

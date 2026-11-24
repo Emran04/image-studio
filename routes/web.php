@@ -13,6 +13,7 @@ Route::get('/', function (): Response {
     return Inertia::render('Home', [
         'appName' => config('app.name'),
         'workspaceUrl' => route('generations.create', absolute: false),
+        'adminLoginUrl' => route('admin.login', absolute: false),
     ]);
 })->name('home');
 
