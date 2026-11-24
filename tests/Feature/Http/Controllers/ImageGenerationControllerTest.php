@@ -26,9 +26,104 @@ test('renders the image generation workspace with size options', function () {
         ->has('imageSizes', 3)
         ->where('imageSizes.0.value', '1024x1024')
         ->where('promptMaxLength', 4000)
+        ->where('indexUrl', '/app/generations')
         ->where('submitUrl', '/app/generations')
         ->where('logoutUrl', '/logout')
     );
+});
+
+test('shows only the signed-in user’s generations, newest first, with available image links', function () {
+    $this->withoutVite();
+    config(['inertia.ssr.enabled' => false]);
+    $this->freezeTime();
+    $user = User::factory()->create();
+    $expired = ImageGeneration::factory()->for($user)->create([
+        'status' => 'succeeded',
+        'image_url' => 'https://pixelforge.promptedit.dev/images/expired.png',
+        'image_url_expires_at' => now()->subHour(),
+    ]);
+    $ready = ImageGeneration::factory()->for($user)->create([
+        'status' => 'succeeded',
+        'image_url' => 'https://pixelforge.promptedit.dev/images/ready.png',
+        'image_url_expires_at' => now()->addHour(),
+    ]);
+    $pending = ImageGeneration::factory()->for($user)->create();
+    ImageGeneration::factory()->create();
+
+    $response = $this->actingAs($user)->get(route('generations.index'));
+
+    $response->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+        ->component('GenerationList')
+        ->has('generations.data', 3)
+        ->where('generations.data.0.id', $pending->id)
+        ->where('generations.data.0.refreshUrl', "/app/generations/{$pending->id}/refresh?page=1")
+        ->where('generations.data.1.id', $ready->id)
+        ->where('generations.data.1.imageUrl', $ready->image_url)
+        ->where('generations.data.2.id', $expired->id)
+        ->where('generations.data.2.imageUrl', null)
+        ->where('generations.data.2.expired', true)
+    );
+    Http::assertNothingSent();
+});
+
+test('requires sign-in to view the generation list', function () {
+    $this->get(route('generations.index'))->assertRedirectToRoute('login');
+});
+
+test('checking a pending generation saves the finished image returned by PixelForge', function () {
+    $user = User::factory()->create();
+    $generation = ImageGeneration::factory()->for($user)->create();
+    $endpoint = "https://pixelforge.promptedit.dev/v1/generations/{$generation->pixelforge_id}";
+    $imageUrl = "https://pixelforge.promptedit.dev/images/{$generation->pixelforge_id}.png?signature=example";
+    Http::fake([$endpoint => Http::response([
+        'id' => $generation->pixelforge_id,
+        'object' => 'generation',
+        'status' => 'succeeded',
+        'prompt' => $generation->prompt,
+        'size' => $generation->size,
+        'quality' => $generation->quality,
+        'image_url' => $imageUrl,
+        'image_url_expires_at' => '2026-11-25T14:03:29Z',
+        'completed_at' => '2026-11-24T14:03:29Z',
+        'usage' => ['total_tokens' => 1500],
+    ])]);
+
+    $response = $this->actingAs($user)->post(route('generations.refresh', $generation));
+
+    $response->assertRedirectToRoute('generations.index')->assertSessionHasNoErrors();
+    Http::assertSent(fn (Request $request): bool => $request->url() === $endpoint
+        && $request->method() === 'GET'
+        && $request->hasHeader('Authorization', 'Bearer test-key'));
+    $this->assertDatabaseHas(ImageGeneration::class, [
+        'id' => $generation->id,
+        'status' => 'succeeded',
+        'image_url' => $imageUrl,
+        'image_url_expires_at' => '2026-11-25 14:03:29',
+        'completed_at' => '2026-11-24 14:03:29',
+    ]);
+    expect($generation->fresh()->usage)->toBe(['total_tokens' => 1500]);
+});
+
+test('does not check another user’s generation', function () {
+    $generation = ImageGeneration::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('generations.refresh', $generation))
+        ->assertNotFound();
+    Http::assertNothingSent();
+});
+
+test('keeps the last known status if PixelForge cannot be reached', function () {
+    $user = User::factory()->create();
+    $generation = ImageGeneration::factory()->for($user)->create();
+    $endpoint = "https://pixelforge.promptedit.dev/v1/generations/{$generation->pixelforge_id}";
+    Http::fake([$endpoint => Http::response(['error' => 'Unavailable'], 503)]);
+
+    $response = $this->actingAs($user)->post(route('generations.refresh', $generation));
+
+    $response->assertRedirectToRoute('generations.index')->assertSessionHasErrors('refresh');
+    Http::assertSentCount(1);
+    $this->assertDatabaseHas(ImageGeneration::class, ['id' => $generation->id, 'status' => 'queued']);
 });
 
 test('submits and stores a generation for the authenticated user', function (?string $imageUrl, string $prompt) {

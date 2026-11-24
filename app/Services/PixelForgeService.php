@@ -5,6 +5,7 @@ namespace App\Services;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Validator;
@@ -40,11 +41,7 @@ class PixelForgeService
         array $metadata = [],
         ?string $idempotencyKey = null,
     ): Response {
-        $apiKey = config('services.pixelforge.key');
-
-        if (! is_string($apiKey) || trim($apiKey) === '') {
-            throw new RuntimeException('Configure PIXELFORGE_API_KEY before requesting image generation.');
-        }
+        $request = $this->client();
 
         $payload = Validator::make([
             'prompt' => $prompt,
@@ -79,16 +76,36 @@ class PixelForgeService
             $payload['metadata'] = (object) $metadata;
         }
 
-        $response = $this->http->asJson()
-            ->acceptJson()
-            ->withToken($apiKey)
+        return $this->successfulResponse($request->asJson()
             ->withHeader('Idempotency-Key', $idempotencyKey ?? (string) Str::uuid())
-            ->connectTimeout(5)
             ->timeout(60)
-            ->withoutRedirecting()
-            ->post(self::BASE_URL.'/generations', $payload)
-            ->throw();
+            ->post(self::BASE_URL.'/generations', $payload));
+    }
 
+    public function retrieve(string $pixelforgeId): Response
+    {
+        return $this->successfulResponse($this->client()
+            ->timeout(8)
+            ->get(self::BASE_URL.'/generations/'.rawurlencode($pixelforgeId)));
+    }
+
+    private function client(): PendingRequest
+    {
+        $apiKey = config('services.pixelforge.key');
+
+        if (! is_string($apiKey) || trim($apiKey) === '') {
+            throw new RuntimeException('Configure PIXELFORGE_API_KEY before requesting image generation.');
+        }
+
+        return $this->http->acceptJson()
+            ->withToken($apiKey)
+            ->connectTimeout(5)
+            ->withoutRedirecting();
+    }
+
+    private function successfulResponse(Response $response): Response
+    {
+        $response->throw();
         if (! $response->successful()) {
             throw new RuntimeException("PixelForge returned unexpected HTTP status {$response->status()}.");
         }

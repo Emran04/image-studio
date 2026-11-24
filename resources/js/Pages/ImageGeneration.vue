@@ -1,7 +1,8 @@
 <script setup>
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
 import { computed, nextTick, ref } from 'vue';
-import { ArrowDownLeft, ArrowRight, ArrowUp, Check, ImagePlus, Link2, LogOut, Scan, Sparkles, WandSparkles } from '@lucide/vue';
+import { ArrowDownLeft, ArrowRight, ArrowUp, Check, Link2, WandSparkles } from '@lucide/vue';
+import WorkspaceLayout from '@/components/WorkspaceLayout.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -11,6 +12,8 @@ const props = defineProps({
     imageSizes: { type: Array, required: true },
     promptMaxLength: { type: Number, required: true },
     submitUrl: { type: String, required: true },
+    createUrl: { type: String, required: true },
+    indexUrl: { type: String, required: true },
     logoutUrl: { type: String, required: true },
 });
 
@@ -22,7 +25,6 @@ const suggestions = [
 
 const form = useForm({ prompt: '', size: props.imageSizes[0].value, image_url: '' });
 const promptLength = computed(() => Array.from(form.prompt).length);
-const logoutForm = useForm({});
 const messages = ref([]);
 const latestMessage = ref(null);
 
@@ -64,60 +66,9 @@ function sizeLabel(value) {
 </script>
 
 <template>
-    <div class="min-h-dvh bg-background text-foreground md:grid md:grid-cols-[14.5rem_minmax(0,1fr)]">
+    <WorkspaceLayout active="create" :create-url="createUrl" :index-url="indexUrl" :logout-url="logoutUrl">
         <Head title="Image Generation · Stillroom" />
-
-        <aside class="flex flex-col gap-4 border-b border-border bg-[#eeeee9] px-4 py-4 sm:px-6 md:sticky md:top-0 md:h-dvh md:gap-10 md:border-r md:border-b-0 md:px-4 md:py-6">
-            <Link href="/" class="flex w-fit items-center gap-3 rounded-lg px-1 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
-                <span class="grid size-9 place-items-center rounded-[10px] bg-[#24264e] text-white">
-                    <Scan class="size-5" aria-hidden="true" />
-                </span>
-                <span>
-                    <span class="block text-[1.05rem] leading-none font-semibold tracking-tight">Stillroom</span>
-                    <span class="mt-1 block font-mono text-[0.6rem] tracking-[.15em] text-muted-foreground uppercase">Image studio</span>
-                </span>
-            </Link>
-
-            <nav aria-label="Workspace">
-                <p class="mb-2 px-2 font-mono text-[0.65rem] font-medium tracking-[.16em] text-muted-foreground uppercase md:mb-3">Workspace</p>
-                <ul>
-                    <li>
-                        <Link href="/app" aria-current="page" class="flex items-center gap-2.5 rounded-lg border border-[#d8d9eb] bg-[#e2e3f3] px-3 py-2.5 text-sm font-semibold text-[#292d6a] hover:bg-[#d9dcf2] focus-visible:outline-2 focus-visible:outline-primary">
-                            <ImagePlus class="size-4 shrink-0" aria-hidden="true" />
-                            Image Generation
-                            <span class="ml-auto size-1.5 rounded-full bg-primary" aria-hidden="true"></span>
-                        </Link>
-                    </li>
-                </ul>
-            </nav>
-
-            <div class="mt-auto hidden items-center gap-2 border-t border-border px-1 pt-4 text-xs text-muted-foreground md:flex">
-                <span class="size-2 rounded-full border border-[#777ac2]" aria-hidden="true"></span>
-                Local workspace
-            </div>
-        </aside>
-
-        <main class="flex min-w-0 flex-col">
-            <header class="flex min-h-14 items-center justify-between gap-2 border-b border-border px-4 sm:px-8">
-                <div class="flex items-center gap-2 text-sm">
-                    <span class="hidden text-muted-foreground sm:inline">Workspace</span>
-                    <span class="hidden text-muted-foreground sm:inline" aria-hidden="true">/</span>
-                    <span class="font-medium">Image Generation</span>
-                </div>
-                <div class="flex shrink-0 items-center gap-3">
-                    <span class="hidden items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 font-mono text-[0.6rem] tracking-wider text-muted-foreground uppercase lg:flex">
-                        <Sparkles class="size-3 text-primary" aria-hidden="true" />
-                        Prompt studio
-                    </span>
-                    <form :action="logoutUrl" method="post" @submit.prevent="logoutForm.post(logoutUrl)">
-                        <Button type="submit" variant="outline" size="sm" class="border-border bg-white" :disabled="logoutForm.processing">
-                            <LogOut class="size-4" aria-hidden="true" />
-                            {{ logoutForm.processing ? 'Signing out…' : 'Log out' }}
-                        </Button>
-                    </form>
-                </div>
-            </header>
-
+        <div class="contents">
             <div class="mx-auto flex w-full max-w-[65rem] flex-1 flex-col gap-5 px-4 py-5 sm:px-8 md:py-7">
                 <section aria-labelledby="generation-title" class="studio-hero relative isolate flex min-h-[15.5rem] items-center overflow-hidden rounded-2xl border border-[#292c62] bg-[#202452] px-5 py-8 text-white sm:min-h-[17rem] sm:px-9">
                     <svg class="pointer-events-none absolute top-1/2 right-[-12rem] h-[21rem] w-[32rem] max-w-none -translate-y-1/2 opacity-45 sm:right-[-5rem] sm:opacity-80 lg:right-0 lg:opacity-100" viewBox="0 0 540 350" fill="none" aria-hidden="true">
@@ -231,8 +182,8 @@ function sizeLabel(value) {
 
                 <p class="-mt-2 text-center text-xs leading-relaxed text-muted-foreground">The status shown is the one PixelForge returned at submission.</p>
             </div>
-        </main>
-    </div>
+        </div>
+    </WorkspaceLayout>
 </template>
 
 <style scoped>
