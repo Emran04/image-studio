@@ -15,6 +15,8 @@ use RuntimeException;
 
 class PixelForgeService
 {
+    public const int PROMPT_MAX_LENGTH = 4000;
+
     private const string BASE_URL = 'https://pixelforge.promptedit.dev/v1';
 
     public function __construct(private Factory $http) {}
@@ -51,7 +53,7 @@ class PixelForgeService
             'reference_images' => $referenceImages,
             'metadata' => $metadata,
         ], [
-            'prompt' => ['required', 'string', 'max:4000'],
+            'prompt' => ['required', 'string', 'max:'.self::PROMPT_MAX_LENGTH],
             'size' => ['required', Rule::in(['1024x1024', '1536x1024', '1024x1536'])],
             'quality' => ['required', Rule::in(['low', 'medium', 'high'])],
             'reference_images' => ['array', 'list', 'max:4'],

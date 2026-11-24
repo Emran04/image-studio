@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { nextTick, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { ArrowDownLeft, ArrowRight, ArrowUp, Check, ImagePlus, Link2, LogOut, Scan, Sparkles, WandSparkles } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 const props = defineProps({
     imageSizes: { type: Array, required: true },
+    promptMaxLength: { type: Number, required: true },
     submitUrl: { type: String, required: true },
     logoutUrl: { type: String, required: true },
 });
@@ -20,6 +21,7 @@ const suggestions = [
 ];
 
 const form = useForm({ prompt: '', size: props.imageSizes[0].value, image_url: '' });
+const promptLength = computed(() => Array.from(form.prompt).length);
 const logoutForm = useForm({});
 const messages = ref([]);
 const latestMessage = ref(null);
@@ -32,6 +34,12 @@ function useSuggestion(prompt) {
 
 function submit() {
     if (form.processing) {
+        return;
+    }
+
+    if (promptLength.value > props.promptMaxLength) {
+        form.setError('prompt', `The prompt field must not be greater than ${props.promptMaxLength} characters.`);
+        document.getElementById('generation-prompt')?.focus();
         return;
     }
 
@@ -174,7 +182,7 @@ function sizeLabel(value) {
                         </div>
                         <div class="flex w-fit items-start gap-2 rounded-xl rounded-bl-sm border border-border bg-white px-3 py-2.5 text-sm">
                             <Check class="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
-                            <p>Prompt received. No image was generated.</p>
+                            <p>Generation status: <span class="font-medium">{{ message.status }}</span></p>
                         </div>
                     </article>
                     <div ref="latestMessage" aria-hidden="true"></div>
@@ -184,9 +192,9 @@ function sizeLabel(value) {
                     <div class="grid gap-1.5">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <label for="generation-prompt" class="text-sm font-semibold">Prompt</label>
-                            <span id="generation-prompt-limit" class="font-mono text-xs text-muted-foreground">{{ form.prompt.length }} / 2000</span>
+                            <span id="generation-prompt-limit" class="font-mono text-xs" :class="promptLength > promptMaxLength ? 'text-destructive' : 'text-muted-foreground'">{{ promptLength }} / {{ promptMaxLength }}</span>
                         </div>
-                        <Textarea id="generation-prompt" v-model="form.prompt" :aria-invalid="!!form.errors.prompt" :aria-describedby="form.errors.prompt ? 'generation-prompt-error generation-prompt-limit' : 'generation-prompt-limit'" maxlength="2000" required class="field-sizing-fixed min-h-[5.25rem] resize-y bg-[#f8f8f6]" placeholder="A quiet observatory under a sky full of stars…" @input="form.clearErrors('prompt')" />
+                        <Textarea id="generation-prompt" v-model="form.prompt" :aria-invalid="!!form.errors.prompt" :aria-describedby="form.errors.prompt ? 'generation-prompt-error generation-prompt-limit' : 'generation-prompt-limit'" required class="field-sizing-fixed min-h-[5.25rem] resize-y bg-[#f8f8f6]" placeholder="A quiet observatory under a sky full of stars…" @input="form.clearErrors('prompt')" />
                         <p v-if="form.errors.prompt" id="generation-prompt-error" class="text-xs text-destructive" role="alert">{{ form.errors.prompt }}</p>
                     </div>
 
@@ -218,9 +226,10 @@ function sizeLabel(value) {
                             <ArrowUp class="size-3.5" aria-hidden="true" />
                         </Button>
                     </div>
+                    <p v-if="form.errors.generation" class="text-xs text-destructive" role="alert">{{ form.errors.generation }}</p>
                 </form>
 
-                <p class="-mt-2 text-center text-xs leading-relaxed text-muted-foreground">This workspace accepts prompts. Image generation is not connected.</p>
+                <p class="-mt-2 text-center text-xs leading-relaxed text-muted-foreground">The status shown is the one PixelForge returned at submission.</p>
             </div>
         </main>
     </div>
