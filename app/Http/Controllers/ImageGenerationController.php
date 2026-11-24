@@ -3,11 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\ImageGeneration;
+use App\Models\User;
+use App\Services\GenerationPricing;
 use App\Services\PixelForgeGenerationSync;
 use App\Services\PixelForgeService;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,10 +25,11 @@ class ImageGenerationController extends Controller
         ['value' => '1024x1536', 'label' => 'Portrait', 'dimensions' => '1024 × 1536'],
     ];
 
-    public function create(PixelForgeService $pixelForge): Response
+    public function create(Request $request, PixelForgeService $pixelForge): Response
     {
         return Inertia::render('ImageGeneration', [
             ...$this->workspaceLinks(),
+            'credits' => fn (): array => $this->workspaceCredits($request->user()),
             'imageSizes' => self::IMAGE_SIZES,
             'promptMaxLength' => PixelForgeService::PROMPT_MAX_LENGTH,
             'quality' => PixelForgeService::DEFAULT_QUALITY,
@@ -49,6 +53,7 @@ class ImageGenerationController extends Controller
 
         return Inertia::render('GenerationList', [
             ...$this->workspaceLinks(),
+            'credits' => fn (): array => $this->workspaceCredits($request->user()),
             'pricing' => fn (): ?array => $generations->isEmpty() ? null : $pixelForge->pricing(),
             'markupPercent' => PixelForgeService::MARKUP_PERCENT,
             'generations' => $generations->through(function (ImageGeneration $generation) use ($page): array {
@@ -88,6 +93,23 @@ class ImageGenerationController extends Controller
 
         $user = $request->user();
         $referenceImage = $submission['image_url'] ?? null;
+        $account = User::query()->whereKey($user->getKey());
+
+        $pricing = $pixelForge->pricing();
+        if ($pricing === null) {
+            return to_route('generations.create')->withErrors([
+                'generation' => 'Could not estimate the cost. Try again when pricing is available.',
+            ]);
+        }
+
+        $reserved = GenerationPricing::reserve($pricing, $submission['prompt'], $submission['size'], $referenceImage !== null);
+
+        // Reserve credits before calling PixelForge without holding a database lock during the request.
+        if ((clone $account)->where('credit_balance', '>=', $reserved)->decrement('credit_balance', $reserved) === 0) {
+            return to_route('generations.create')->withErrors([
+                'credits' => 'Not enough credits. Buy credits to submit a prompt.',
+            ]);
+        }
 
         try {
             $response = $pixelForge->generate(
@@ -97,7 +119,10 @@ class ImageGenerationController extends Controller
                 metadata: ['user_id' => (string) $user->getKey()],
             );
             $attributes = $generations->attributes($response->json());
+            $attributes['rates'] ??= $pricing['rates'];
+            $cost = GenerationPricing::settledCost($attributes['status'], $attributes['usage'] ?? null, $attributes['rates'], $reserved);
         } catch (HttpClientException|RuntimeException $exception) {
+            $account->increment('credit_balance', $reserved);
             report($exception);
 
             return to_route('generations.create')->withErrors([
@@ -105,7 +130,17 @@ class ImageGenerationController extends Controller
             ]);
         }
 
-        $generation = $user->imageGenerations()->create($attributes);
+        $generation = DB::transaction(function () use ($user, $account, $reserved, $cost, $attributes): ImageGeneration {
+            $generation = $user->imageGenerations()->make($attributes);
+            $generation->credit_cost = $cost;
+            $generation->save();
+
+            if ($reserved !== $cost) {
+                $account->increment('credit_balance', $reserved - $cost);
+            }
+
+            return $generation;
+        }, attempts: 3);
 
         Inertia::flash('submission', [...$submission, 'status' => $generation->status]);
 
@@ -129,13 +164,12 @@ class ImageGenerationController extends Controller
             if ($attributes['pixelforge_id'] !== $record->pixelforge_id) {
                 throw new UnexpectedValueException('PixelForge returned the wrong generation.');
             }
+            $generations->sync($attributes);
         } catch (HttpClientException|RuntimeException $exception) {
             report($exception);
 
             return $redirect->withErrors(['refresh' => 'Could not check the status with PixelForge. Try again shortly.']);
         }
-
-        $generations->sync($attributes);
 
         return $redirect;
     }
@@ -147,6 +181,26 @@ class ImageGenerationController extends Controller
             'createUrl' => route('generations.create', absolute: false),
             'indexUrl' => route('generations.index', absolute: false),
             'logoutUrl' => route('logout', absolute: false),
+        ];
+    }
+
+    /** @return array{balance: int, used: int, reserved: int, packSize: int, purchaseUrl: string} */
+    private function workspaceCredits(User $user): array
+    {
+        $account = User::query()
+            ->select(['id', 'credit_balance'])
+            ->withSum([
+                'imageGenerations as credits_used' => fn ($query) => $query->where('status', 'succeeded'),
+                'imageGenerations as credits_reserved' => fn ($query) => $query->whereIn('status', PixelForgeGenerationSync::PENDING_STATUSES),
+            ], 'credit_cost')
+            ->find($user->getKey());
+
+        return [
+            'balance' => $account?->credit_balance ?? 0,
+            'used' => (int) $account?->credits_used,
+            'reserved' => (int) $account?->credits_reserved,
+            'packSize' => CreditPurchaseController::DEMO_PACK_SIZE,
+            'purchaseUrl' => route('credits.store', absolute: false),
         ];
     }
 }

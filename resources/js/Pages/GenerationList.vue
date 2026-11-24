@@ -2,6 +2,7 @@
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, ImageOff, Images, Plus, RefreshCw } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import WorkspaceCredits from '@/components/WorkspaceCredits.vue';
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue';
 import { Button } from '@/components/ui/button';
 import { actualGenerationCost, estimateGenerationCost } from '@/lib/generationCost';
@@ -10,6 +11,7 @@ const props = defineProps({
     createUrl: { type: String, required: true },
     indexUrl: { type: String, required: true },
     logoutUrl: { type: String, required: true },
+    credits: { type: Object, required: true },
     generations: { type: Object, required: true },
     pricing: { type: Object, default: null },
     markupPercent: { type: Number, required: true },
@@ -69,6 +71,8 @@ function refresh(entry) {
                     </Link>
                 </Button>
             </section>
+
+            <WorkspaceCredits :credits="credits" />
 
             <section v-if="entries.length" aria-labelledby="history-title" class="grid gap-3">
                 <h2 id="history-title" class="flex items-center gap-2 px-1 font-mono text-[0.65rem] font-medium tracking-[.16em] text-muted-foreground uppercase">

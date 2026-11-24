@@ -119,8 +119,8 @@ test('records a processing event only once even when the retry is signed again',
     $this->assertDatabaseCount('pixelforge_webhook_receipts', 1);
 });
 
-test('saves successful image and token usage without letting later events overwrite terminal state or ownership', function () {
-    $generation = ImageGeneration::factory()->create();
+test('settles a successful generation at its actual cost without letting later events overwrite terminal state or ownership', function () {
+    $generation = ImageGeneration::factory()->create(['credit_cost' => 863]);
     $usage = ['input_text_tokens' => 12, 'input_image_tokens' => 0, 'output_tokens' => 1100, 'reasoning_tokens' => 388, 'total_tokens' => 1500];
     $rates = ['input_text_tokens' => '5.00', 'input_image_tokens' => '10.00', 'output_tokens' => '40.00', 'reasoning_tokens' => '12.50'];
     $imageUrl = 'https://pixelforge.promptedit.dev/images/generated.png?signature=example';
@@ -145,7 +145,9 @@ test('saves successful image and token usage without letting later events overwr
         'completed_at' => now()->toDateTimeString(),
         'user_id' => $generation->user_id,
         'prompt' => $generation->prompt,
+        'credit_cost' => 611,
     ]);
+    $this->assertDatabaseHas('users', ['id' => $generation->user_id, 'credit_balance' => 252]);
     expect($generation->refresh()->usage)->toEqual($usage);
     expect($generation->rates)->toBe($rates);
     $this->assertDatabaseCount('pixelforge_webhook_receipts', 3);
@@ -161,6 +163,18 @@ test('records a failed generation and its error', function () {
     expect($generation->refresh()->status)->toBe('failed');
     expect($generation->error)->toBe($error);
     expect($generation->usage)->toBeNull();
+});
+
+test('returns a reserved credit only once even when failure is reported twice', function () {
+    $generation = ImageGeneration::factory()->create(['credit_cost' => 1]);
+
+    deliverPixelForgeEvent($this, pixelForgeEvent('evt_failed', $generation->pixelforge_id, 'failed'))
+        ->assertNoContent();
+    deliverPixelForgeEvent($this, pixelForgeEvent('evt_failed_again', $generation->pixelforge_id, 'failed'))
+        ->assertNoContent();
+
+    $this->assertDatabaseHas('users', ['id' => $generation->user_id, 'credit_balance' => 1]);
+    $this->assertDatabaseHas(ImageGeneration::class, ['id' => $generation->id, 'status' => 'failed']);
 });
 
 test('returns 503 for an early event and applies the same event after the generation is saved', function () {

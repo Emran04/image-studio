@@ -3,6 +3,15 @@ const displayScale = 10_000n;
 const priceDivisor = rateScale * 1_000_000n * 100n / displayScale;
 const tokenTypes = ['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'];
 
+export function formatCreditUsd(units, minimumFractionDigits = 4) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits,
+        maximumFractionDigits: 4,
+    }).format(units / Number(displayScale));
+}
+
 function hasValidRates(rates) {
     return tokenTypes.every((type) => typeof rates?.[type] === 'string'
         && /^[0-9]+(?:\.[0-9]{1,9})?$/.test(rates[type]));

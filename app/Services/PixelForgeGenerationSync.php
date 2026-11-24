@@ -86,11 +86,18 @@ class PixelForgeGenerationSync
                 'status', 'image_url', 'image_url_expires_at', 'usage', 'error', 'started_at', 'completed_at',
             ]));
 
-            if ($generation->rates === null && isset($attributes['rates'])) {
+            if (isset($attributes['rates']) && ($generation->rates === null
+                || ($generation->status === 'succeeded' && GenerationPricing::providerCost($generation->usage, $attributes['rates']) !== null))) {
                 $generation->rates = $attributes['rates'];
             }
 
+            $reserved = $generation->credit_cost;
+            $generation->credit_cost = GenerationPricing::settledCost($generation->status, $generation->usage, $generation->rates, $reserved);
             $generation->save();
+
+            if ($reserved !== $generation->credit_cost) {
+                $generation->user()->increment('credit_balance', $reserved - $generation->credit_cost);
+            }
         }, attempts: 3);
     }
 }

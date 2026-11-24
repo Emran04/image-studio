@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\AuthenticatedSessionController;
+use App\Http\Controllers\CreditPurchaseController;
 use App\Http\Controllers\ImageGenerationController;
 use App\Http\Controllers\RegisteredUserController;
 use Illuminate\Support\Facades\Route;
@@ -33,6 +34,7 @@ Route::middleware(['auth', 'can:view-admin'])->group(function (): void {
 Route::middleware('auth')->group(function (): void {
     Route::get('/app', [ImageGenerationController::class, 'create'])->name('generations.create');
     Route::get('/app/generations', [ImageGenerationController::class, 'index'])->name('generations.index');
+    Route::post('/app/credits', CreditPurchaseController::class)->name('credits.store');
     Route::post('/app/generations', [ImageGenerationController::class, 'store'])->name('generations.store');
     Route::post('/app/generations/{generation}/refresh', [ImageGenerationController::class, 'refresh'])
         ->whereNumber('generation')->middleware('throttle:12,1')->name('generations.refresh');

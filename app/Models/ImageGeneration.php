@@ -41,6 +41,7 @@ class ImageGeneration extends Model
     protected function casts(): array
     {
         return [
+            'credit_cost' => 'integer',
             'reference_images' => 'array',
             'metadata' => 'array',
             'image_url_expires_at' => 'immutable_datetime',

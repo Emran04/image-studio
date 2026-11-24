@@ -2,6 +2,7 @@
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed, nextTick, ref } from 'vue';
 import { ArrowDownLeft, ArrowRight, ArrowUp, Check, Link2, WandSparkles } from '@lucide/vue';
+import WorkspaceCredits from '@/components/WorkspaceCredits.vue';
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,7 @@ const props = defineProps({
     createUrl: { type: String, required: true },
     indexUrl: { type: String, required: true },
     logoutUrl: { type: String, required: true },
+    credits: { type: Object, required: true },
 });
 
 const suggestions = [
@@ -36,6 +38,8 @@ const costEstimate = computed(() => promptLength.value > props.promptMaxLength ?
     hasReference: form.image_url.trim() !== '',
     markupPercent: props.markupPercent,
 }));
+const canAffordGeneration = computed(() => props.credits.balance > 0
+    && (!costEstimate.value || props.credits.balance >= Number(costEstimate.value.max.slice(1).replace('.', ''))));
 const messages = ref([]);
 const latestMessage = ref(null);
 
@@ -46,7 +50,7 @@ function useSuggestion(prompt) {
 }
 
 function submit() {
-    if (form.processing) {
+    if (form.processing || !props.pricing || !canAffordGeneration.value) {
         return;
     }
 
@@ -124,6 +128,8 @@ function sizeLabel(value) {
                     </div>
                 </section>
 
+                <WorkspaceCredits :credits="credits" />
+
                 <section v-if="messages.length === 0" aria-label="Prompt ideas" class="flex flex-wrap items-center gap-2">
                     <span class="mr-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                         <ArrowDownLeft class="size-3.5" aria-hidden="true" />
@@ -183,7 +189,7 @@ function sizeLabel(value) {
                         </div>
                     </div>
                     <div class="grid gap-1 rounded-lg border border-[#d8d9eb] bg-[#f3f3fa] p-3">
-                        <p class="font-mono text-[0.65rem] font-medium tracking-[.12em] text-[#343a80] uppercase">Estimated cost <span class="text-muted-foreground">· USD</span></p>
+                        <p class="font-mono text-[0.65rem] font-medium tracking-[.12em] text-[#343a80] uppercase">Estimated usage cost <span class="text-muted-foreground">· USD</span></p>
                         <output for="generation-prompt generation-size generation-reference" class="text-sm font-semibold tabular-nums">
                             <template v-if="costEstimate">
                                 {{ costEstimate.min === costEstimate.max ? costEstimate.min : `${costEstimate.min}–${costEstimate.max}` }}
@@ -192,14 +198,21 @@ function sizeLabel(value) {
                             <template v-else-if="promptLength > promptMaxLength">Shorten your prompt to see an estimate</template>
                             <template v-else>Enter a prompt to see an estimate</template>
                         </output>
-                        <p class="text-xs leading-relaxed text-muted-foreground">Final cost depends on token usage; failed generations aren’t billed.</p>
+                        <p class="text-xs leading-relaxed text-muted-foreground">We reserve the upper estimate, then deduct the actual USD cost.</p>
                     </div>
                     <p v-if="form.errors.generation" class="text-xs text-destructive" role="alert">{{ form.errors.generation }}</p>
-                    <Button type="submit" :disabled="form.processing" class="min-h-9 sm:justify-self-end">
-                        <WandSparkles class="size-4" aria-hidden="true" />
-                        {{ form.processing ? 'Submitting…' : 'Submit prompt' }}
-                        <ArrowUp class="size-3.5" aria-hidden="true" />
-                    </Button>
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="grid gap-0.5 text-xs" aria-live="polite">
+                            <p v-if="!pricing" class="font-medium">Generation is paused until pricing is available.</p>
+                            <p v-if="!canAffordGeneration" class="text-destructive">{{ form.errors.credits ?? 'Not enough credits. Buy credits to submit a prompt.' }}</p>
+                            <p v-else class="text-muted-foreground">Failed generations return your credits.</p>
+                        </div>
+                        <Button type="submit" :disabled="form.processing || !pricing || !canAffordGeneration" class="min-h-9">
+                            <WandSparkles class="size-4" aria-hidden="true" />
+                            {{ form.processing ? 'Submitting…' : 'Submit prompt' }}
+                            <ArrowUp class="size-3.5" aria-hidden="true" />
+                        </Button>
+                    </div>
                 </form>
 
                 <p class="-mt-2 text-center text-xs leading-relaxed text-muted-foreground">The status shown is the one PixelForge returned at submission.</p>

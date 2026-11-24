@@ -32,6 +32,7 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'credit_balance' => 'integer',
             'email_verified_at' => 'datetime',
             'is_admin' => 'boolean',
             'password' => 'hashed',

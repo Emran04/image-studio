@@ -9,8 +9,6 @@ use Carbon\CarbonImmutable;
 
 class GenerationOperationsReport
 {
-    private const array TOKEN_TYPES = ['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'];
-
     public function __construct(private PixelForgeService $pixelForge) {}
 
     /** @return array{totals: array, days: list<array>, users: list<array>, providerCostsDiffer: bool} */
@@ -41,9 +39,10 @@ class GenerationOperationsReport
             $days[$date]['users'][$userId] ??= [...$account, ...$this->emptyTotals()];
             $users[$userId] ??= [...$account, ...$this->emptyTotals()];
 
-            $provider = $this->calculatedProviderCost($generation);
-            $spend = $provider?->multipliedBy(100 + PixelForgeService::MARKUP_PERCENT)
-                ->dividedBy(100, 4, RoundingMode::HalfUp);
+            $provider = $generation->status === 'failed'
+                ? BigDecimal::zero()
+                : GenerationPricing::providerCost($generation->usage, $generation->rates);
+            $spend = $provider === null ? null : GenerationPricing::markedUpCost($provider);
 
             $this->addGeneration($totals, $provider, $spend);
             $this->addGeneration($days[$date]['totals'], $provider, $spend);
@@ -79,29 +78,6 @@ class GenerationOperationsReport
             'users' => $this->formatUsers($users),
             'providerCostsDiffer' => $providerCostsDiffer,
         ];
-    }
-
-    private function calculatedProviderCost(ImageGeneration $generation): ?BigDecimal
-    {
-        $cost = BigDecimal::zero();
-
-        if ($generation->status === 'failed') {
-            return $cost;
-        }
-
-        foreach (self::TOKEN_TYPES as $type) {
-            $tokens = $generation->usage[$type] ?? null;
-            $rate = $generation->rates[$type] ?? null;
-
-            if (! is_int($tokens) || $tokens < 0
-                || ! is_string($rate) || ! preg_match('/\A[0-9]+(?:\.[0-9]{1,9})?\z/', $rate)) {
-                return null;
-            }
-
-            $cost = $cost->plus(BigDecimal::of($rate)->multipliedBy($tokens));
-        }
-
-        return $cost->dividedByExact(1_000_000);
     }
 
     /** @return array{spend: BigDecimal, providerCost: BigDecimal, generations: int, missingPricing: int} */
