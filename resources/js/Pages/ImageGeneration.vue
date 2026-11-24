@@ -192,7 +192,7 @@ function sizeLabel(value) {
                             <template v-else-if="promptLength > promptMaxLength">Shorten your prompt to see an estimate</template>
                             <template v-else>Enter a prompt to see an estimate</template>
                         </output>
-                        <p class="text-xs leading-relaxed text-muted-foreground">Includes a {{ markupPercent }}% markup. Final cost depends on token usage; failed generations aren’t billed.</p>
+                        <p class="text-xs leading-relaxed text-muted-foreground">Final cost depends on token usage; failed generations aren’t billed.</p>
                     </div>
                     <p v-if="form.errors.generation" class="text-xs text-destructive" role="alert">{{ form.errors.generation }}</p>
                     <Button type="submit" :disabled="form.processing" class="min-h-9 sm:justify-self-end">

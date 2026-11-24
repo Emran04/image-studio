@@ -3,12 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\ImageGeneration;
+use App\Services\PixelForgeGenerationSync;
 use App\Services\PixelForgeService;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -17,8 +16,6 @@ use UnexpectedValueException;
 
 class ImageGenerationController extends Controller
 {
-    private const array PENDING_STATUSES = ['queued', 'processing'];
-
     private const int MARKUP_PERCENT = 25;
 
     private const array IMAGE_SIZES = [
@@ -75,7 +72,7 @@ class ImageGenerationController extends Controller
                     'imageUrl' => $imageUrl,
                     'expired' => $expired,
                     'createdAt' => $generation->created_at?->toDateString(),
-                    'refreshUrl' => in_array($generation->status, self::PENDING_STATUSES, true)
+                    'refreshUrl' => in_array($generation->status, PixelForgeGenerationSync::PENDING_STATUSES, true)
                         ? route('generations.refresh', ['generation' => $generation->id, 'page' => $page], absolute: false)
                         : null,
                 ];
@@ -83,7 +80,7 @@ class ImageGenerationController extends Controller
         ]);
     }
 
-    public function store(Request $request, PixelForgeService $pixelForge): RedirectResponse
+    public function store(Request $request, PixelForgeService $pixelForge, PixelForgeGenerationSync $generations): RedirectResponse
     {
         $submission = $request->validate([
             'prompt' => ['required', 'string', 'max:'.PixelForgeService::PROMPT_MAX_LENGTH],
@@ -101,7 +98,7 @@ class ImageGenerationController extends Controller
                 referenceImages: $referenceImage === null ? [] : [$referenceImage],
                 metadata: ['user_id' => (string) $user->getKey()],
             );
-            $attributes = $this->generationAttributes($response->json());
+            $attributes = $generations->attributes($response->json());
         } catch (HttpClientException|RuntimeException $exception) {
             report($exception);
 
@@ -117,19 +114,19 @@ class ImageGenerationController extends Controller
         return to_route('generations.create');
     }
 
-    public function refresh(Request $request, string $generation, PixelForgeService $pixelForge): RedirectResponse
+    public function refresh(Request $request, string $generation, PixelForgeService $pixelForge, PixelForgeGenerationSync $generations): RedirectResponse
     {
         $ownedGenerations = $request->user()->imageGenerations();
         $record = $ownedGenerations->findOrFail($generation);
         $page = $request->integer('page', 1);
         $redirect = to_route('generations.index', $page > 1 ? ['page' => $page] : []);
 
-        if (! in_array($record->status, self::PENDING_STATUSES, true)) {
+        if (! in_array($record->status, PixelForgeGenerationSync::PENDING_STATUSES, true)) {
             return $redirect;
         }
 
         try {
-            $attributes = $this->generationAttributes($pixelForge->retrieve($record->pixelforge_id)->json());
+            $attributes = $generations->attributes($pixelForge->retrieve($record->pixelforge_id)->json());
 
             if ($attributes['pixelforge_id'] !== $record->pixelforge_id) {
                 throw new UnexpectedValueException('PixelForge returned the wrong generation.');
@@ -140,20 +137,7 @@ class ImageGenerationController extends Controller
             return $redirect->withErrors(['refresh' => 'Could not check the status with PixelForge. Try again shortly.']);
         }
 
-        if ($record->status === 'processing' && $attributes['status'] === 'queued') {
-            return $redirect;
-        }
-
-        $record->fill(Arr::only($attributes, [
-            'status', 'image_url', 'image_url_expires_at', 'usage', 'error', 'started_at', 'completed_at',
-        ]));
-
-        if ($record->rates === null && isset($attributes['rates'])) {
-            $record->rates = $attributes['rates'];
-        }
-
-        $ownedGenerations->whereKey($record->getKey())->where('status', $record->getOriginal('status'))
-            ->update($record->getDirty());
+        $generations->sync($attributes);
 
         return $redirect;
     }
@@ -166,39 +150,5 @@ class ImageGenerationController extends Controller
             'indexUrl' => route('generations.index', absolute: false),
             'logoutUrl' => route('logout', absolute: false),
         ];
-    }
-
-    /** @return array<string, mixed> */
-    private function generationAttributes(mixed $payload): array
-    {
-        $validator = Validator::make(is_array($payload) ? $payload : [], [
-            'id' => ['required', 'string', 'max:255'],
-            'object' => ['required', 'in:generation'],
-            'status' => ['required', 'string', Rule::in(['queued', 'processing', 'succeeded', 'failed'])],
-            'prompt' => ['required', 'string'],
-            'size' => ['required', 'string', 'max:40'],
-            'quality' => ['required', 'string', 'max:40'],
-            'reference_images' => ['nullable', 'array', 'list'],
-            'metadata' => ['nullable', 'array'],
-            'image_url' => ['nullable', 'string', 'url:https'],
-            'image_url_expires_at' => ['nullable', 'date'],
-            'usage' => ['nullable', 'array'],
-            'rates' => ['nullable', 'array'],
-            'error' => ['nullable'],
-            'created_at' => ['nullable', 'date'],
-            'started_at' => ['nullable', 'date'],
-            'completed_at' => ['nullable', 'date'],
-        ]);
-
-        if ($validator->fails()) {
-            throw new UnexpectedValueException('PixelForge returned an invalid generation payload.');
-        }
-
-        $attributes = $validator->validated();
-        $attributes['pixelforge_id'] = $attributes['id'];
-        $attributes['pixelforge_created_at'] = $attributes['created_at'] ?? null;
-        unset($attributes['id'], $attributes['created_at']);
-
-        return $attributes;
     }
 }
