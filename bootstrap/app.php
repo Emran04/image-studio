@@ -18,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectGuestsTo(fn (Request $request): string => route(
+            $request->routeIs('admin.*') ? 'admin.login' : 'login',
+        ));
         $middleware->redirectUsersTo(fn (): string => route('generations.create'));
 
         $middleware->web(append: [

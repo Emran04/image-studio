@@ -23,6 +23,8 @@ class PixelForgeService
 
     public const string DEFAULT_QUALITY = 'medium';
 
+    public const int MARKUP_PERCENT = 25;
+
     private const string BASE_URL = 'https://pixelforge.promptedit.dev/v1';
 
     public function __construct(private Factory $http) {}

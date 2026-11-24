@@ -23,6 +23,32 @@ class AuthenticatedSessionController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        return $this->authenticate($request, admin: false);
+    }
+
+    public function createAdmin(Request $request): Response|RedirectResponse
+    {
+        if ($request->user()?->can('view-admin')) {
+            return to_route('admin.index');
+        }
+
+        return Inertia::render('Login', [
+            'submitUrl' => route('admin.login.store', absolute: false),
+            'admin' => true,
+        ]);
+    }
+
+    public function storeAdmin(Request $request): RedirectResponse
+    {
+        if ($request->user()?->can('view-admin')) {
+            return to_route('admin.index');
+        }
+
+        return $this->authenticate($request, admin: true);
+    }
+
+    private function authenticate(Request $request, bool $admin): RedirectResponse
+    {
         $credentials = $request->validate([
             'email' => ['required', 'string', 'email', 'max:255'],
             'password' => ['required', 'string', 'max:1024'],
@@ -39,8 +65,12 @@ class AuthenticatedSessionController extends Controller
             ]);
         }
 
+        if ($admin) {
+            $credentials['is_admin'] = true;
+        }
+
         if (! Auth::attempt($credentials)
-            && ($credentials['email'] === $lowercaseEmail || ! Auth::attempt(['email' => $lowercaseEmail, 'password' => $credentials['password']]))) {
+            && ($credentials['email'] === $lowercaseEmail || ! Auth::attempt([...$credentials, 'email' => $lowercaseEmail]))) {
             RateLimiter::hit($throttleKey);
 
             throw ValidationException::withMessages(['email' => __('auth.failed')]);
@@ -50,16 +80,26 @@ class AuthenticatedSessionController extends Controller
         $request->session()->regenerate();
         $request->session()->forget('url.intended');
 
-        return to_route('generations.create');
+        return to_route($admin ? 'admin.index' : 'generations.create');
     }
 
     public function destroy(Request $request): RedirectResponse
+    {
+        return $this->logout($request, 'login');
+    }
+
+    public function destroyAdmin(Request $request): RedirectResponse
+    {
+        return $this->logout($request, 'admin.login');
+    }
+
+    private function logout(Request $request, string $loginRoute): RedirectResponse
     {
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
         Inertia::clearHistory();
 
-        return to_route('login');
+        return to_route($loginRoute);
     }
 }

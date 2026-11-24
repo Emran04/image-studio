@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 
 const props = defineProps({
     submitUrl: { type: String, required: true },
-    registerUrl: { type: String, required: true },
+    registerUrl: { type: String, default: null },
+    admin: { type: Boolean, default: false },
 });
 
 const form = useForm({ email: '', password: '' });
@@ -22,12 +23,12 @@ function signIn() {
 </script>
 
 <template>
-    <AuthLayout>
-        <Head title="Sign in · Stillroom" />
+    <AuthLayout :admin="admin">
+        <Head :title="admin ? 'Admin sign in · Stillroom' : 'Sign in · Stillroom'" />
 
-        <p class="mb-3 font-mono text-xs tracking-[.16em] text-primary uppercase">Workspace access</p>
-        <h1 id="auth-title" class="text-4xl font-semibold tracking-[-.055em] sm:text-5xl">Sign in</h1>
-        <p class="mt-3 text-sm text-muted-foreground">Use your account to open the image studio.</p>
+        <p class="mb-3 font-mono text-xs tracking-[.16em] text-primary uppercase">{{ admin ? 'Restricted access' : 'Workspace access' }}</p>
+        <h1 id="auth-title" class="text-4xl font-semibold tracking-[-.055em] sm:text-5xl">{{ admin ? 'Admin sign in' : 'Sign in' }}</h1>
+        <p class="mt-3 text-sm text-muted-foreground">{{ admin ? 'Use an administrator account to open the operations report.' : 'Use your account to open the image studio.' }}</p>
 
         <form :action="submitUrl" method="post" novalidate class="mt-8 grid gap-5" :aria-busy="form.processing" @submit.prevent="signIn">
             <div class="grid gap-2">
@@ -46,7 +47,7 @@ function signIn() {
                 <ArrowRight class="size-4" aria-hidden="true" />
             </Button>
         </form>
-        <p class="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
+        <p v-if="registerUrl" class="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
             New to Stillroom? <Link :href="registerUrl" class="font-semibold text-primary underline-offset-4 hover:underline">Create an account</Link>
         </p>
     </AuthLayout>

@@ -16,8 +16,6 @@ use UnexpectedValueException;
 
 class ImageGenerationController extends Controller
 {
-    private const int MARKUP_PERCENT = 25;
-
     private const array IMAGE_SIZES = [
         ['value' => '1024x1024', 'label' => 'Square', 'dimensions' => '1024 × 1024'],
         ['value' => '1536x1024', 'label' => 'Landscape', 'dimensions' => '1536 × 1024'],
@@ -32,7 +30,7 @@ class ImageGenerationController extends Controller
             'promptMaxLength' => PixelForgeService::PROMPT_MAX_LENGTH,
             'quality' => PixelForgeService::DEFAULT_QUALITY,
             'pricing' => fn (): ?array => $pixelForge->pricing(),
-            'markupPercent' => self::MARKUP_PERCENT,
+            'markupPercent' => PixelForgeService::MARKUP_PERCENT,
             'submitUrl' => route('generations.store', absolute: false),
         ]);
     }
@@ -52,7 +50,7 @@ class ImageGenerationController extends Controller
         return Inertia::render('GenerationList', [
             ...$this->workspaceLinks(),
             'pricing' => fn (): ?array => $generations->isEmpty() ? null : $pixelForge->pricing(),
-            'markupPercent' => self::MARKUP_PERCENT,
+            'markupPercent' => PixelForgeService::MARKUP_PERCENT,
             'generations' => $generations->through(function (ImageGeneration $generation) use ($page): array {
                 $expired = $generation->image_url_expires_at?->isPast() ?? false;
                 $imageUrl = $generation->status === 'succeeded' && ! $expired

@@ -1,6 +1,10 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import { Scan } from '@lucide/vue';
+
+defineProps({
+    admin: { type: Boolean, default: false },
+});
 </script>
 
 <template>
@@ -18,19 +22,22 @@ import { Scan } from '@lucide/vue';
                 </span>
                 <span>
                     <span class="block text-lg leading-none font-semibold tracking-tight">Stillroom</span>
-                    <span class="mt-1 block font-mono text-[0.63rem] tracking-[.17em] text-[#d3d7ff] uppercase">Image studio</span>
+                    <span class="mt-1 block font-mono text-[0.63rem] tracking-[.17em] text-[#d3d7ff] uppercase">{{ admin ? 'Administration' : 'Image studio' }}</span>
                 </span>
             </Link>
 
             <div class="relative hidden max-w-md md:block">
                 <p class="mb-4 flex items-center gap-2 font-mono text-[0.65rem] tracking-[.2em] text-[#ced3ff] uppercase">
                     <span class="h-px w-5 bg-[#b4bcff]" aria-hidden="true"></span>
-                    The generation desk
+                    {{ admin ? 'The operations desk' : 'The generation desk' }}
                 </p>
-                <p class="text-[clamp(2.6rem,5.4vw,5rem)] leading-[.96] font-medium tracking-[-.065em]">Imagine it.<br />Then make it.</p>
+                <p class="text-[clamp(2.6rem,5.4vw,5rem)] leading-[.96] font-medium tracking-[-.065em]">
+                    <template v-if="admin">Studio<br />operations.</template>
+                    <template v-else>Imagine it.<br />Then make it.</template>
+                </p>
             </div>
 
-            <p class="relative hidden border-t border-white/20 pt-4 font-mono text-[0.65rem] tracking-[.15em] text-[#d3d7ff] uppercase md:block">Stillroom / Workspace</p>
+            <p class="relative hidden border-t border-white/20 pt-4 font-mono text-[0.65rem] tracking-[.15em] text-[#d3d7ff] uppercase md:block">Stillroom / {{ admin ? 'Admin' : 'Workspace' }}</p>
         </div>
 
         <section aria-labelledby="auth-title" class="flex min-w-0 items-center justify-center px-6 py-10 sm:px-10 md:py-14">

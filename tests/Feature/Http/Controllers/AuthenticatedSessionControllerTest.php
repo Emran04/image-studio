@@ -99,3 +99,62 @@ test('logs out and invalidates the old session', function () {
     expect(session()->getId())->not->toBe($previousSessionId);
     expect(session()->token())->not->toBe('old-token');
 });
+
+test('shows an admin login without a registration link', function () {
+    $this->withoutVite();
+
+    $this->get('/admin-login')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+        ->component('Login')
+        ->where('submitUrl', '/admin-login')
+        ->where('admin', true)
+        ->missing('registerUrl')
+    );
+});
+
+test('only accepts admin credentials at the admin login', function (bool $isAdmin, string $password) {
+    $user = User::factory()->create(['is_admin' => $isAdmin]);
+
+    $this->from('/admin-login')->post('/admin-login', ['email' => $user->email, 'password' => $password, 'is_admin' => true])
+        ->assertRedirectToRoute('admin.login')
+        ->assertSessionHasErrors(['email' => __('auth.failed')]);
+    $this->assertGuest();
+})->with([
+    'non-admin with the correct password' => [false, 'password'],
+    'admin with the wrong password' => [true, 'wrong-password'],
+]);
+
+test('signs in an admin with a case-insensitive email and renews the session', function () {
+    $user = User::factory()->create(['is_admin' => true, 'email' => 'admin@example.com']);
+    $this->withSession(['url.intended' => route('home')]);
+    $previousSessionId = session()->getId();
+
+    $this->post('/admin-login', ['email' => 'Admin@Example.com', 'password' => 'password'])
+        ->assertRedirectToRoute('admin.index')
+        ->assertSessionMissing('url.intended');
+    $this->assertAuthenticatedAs($user);
+    expect(session()->getId())->not->toBe($previousSessionId);
+});
+
+test('redirects an already signed-in admin from the admin login to the dashboard', function () {
+    $this->actingAs(User::factory()->make(['is_admin' => true]));
+
+    $this->get('/admin-login')->assertRedirectToRoute('admin.index');
+});
+
+test('lets a signed-in workspace user switch to an admin account', function () {
+    $this->withoutVite()->actingAs(User::factory()->create());
+    $admin = User::factory()->create(['is_admin' => true]);
+
+    $this->get('/admin-login')->assertOk();
+    $this->post('/admin-login', ['email' => $admin->email, 'password' => 'password'])
+        ->assertRedirectToRoute('admin.index');
+
+    $this->assertAuthenticatedAs($admin);
+});
+
+test('signs out an admin and returns to the admin login', function () {
+    $this->actingAs(User::factory()->make(['is_admin' => true]))->withSession(['private_data' => true]);
+
+    $this->post('/admin/logout')->assertRedirectToRoute('admin.login')->assertSessionMissing('private_data');
+    $this->assertGuest();
+});
