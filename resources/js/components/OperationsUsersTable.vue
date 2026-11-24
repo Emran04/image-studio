@@ -12,7 +12,7 @@ defineProps({
             <thead class="border-b border-border bg-secondary/60 text-xs text-muted-foreground">
                 <tr>
                     <th scope="col" class="px-4 py-3 text-left font-medium sm:px-6">User</th>
-                    <th v-for="metric in metrics" :key="metric.key" scope="col" class="px-4 py-3 text-right font-medium sm:px-6">{{ metric.label }}</th>
+                    <th v-for="metric in metrics" :key="metric.key" scope="col" class="px-4 py-3 text-right font-medium sm:px-6">{{ metric.label }}<span v-if="metric.key !== 'spend'" class="block font-normal">Calculated</span></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-border">

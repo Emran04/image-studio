@@ -11,23 +11,26 @@ class GenerationOperationsReport
 {
     private const array TOKEN_TYPES = ['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'];
 
-    /** @return array{totals: array, days: list<array>, users: list<array>} */
+    public function __construct(private PixelForgeService $pixelForge) {}
+
+    /** @return array{totals: array, days: list<array>, users: list<array>, providerCostsDiffer: bool} */
     public function forMonth(CarbonImmutable $month): array
     {
         $totals = $this->emptyTotals();
         $days = [];
         $users = [];
+        $usage = $this->pixelForge->usageForMonth($month);
 
         $generations = ImageGeneration::query()
-            ->select('id', 'user_id', 'status', 'usage', 'rates', 'created_at')
+            ->select('id', 'user_id', 'status', 'usage', 'rates', 'completed_at')
             ->with('user:id,name,email')
-            ->where('created_at', '>=', $month)
-            ->where('created_at', '<', $month->addMonth())
+            ->where('completed_at', '>=', $month)
+            ->where('completed_at', '<', $month->addMonth())
             ->whereIn('status', ['succeeded', 'failed'])
             ->lazyById();
 
         foreach ($generations as $generation) {
-            $date = $generation->created_at->toDateString();
+            $date = $generation->completed_at->toDateString();
             $userId = $generation->user_id;
             $account = [
                 'id' => $userId,
@@ -38,7 +41,7 @@ class GenerationOperationsReport
             $days[$date]['users'][$userId] ??= [...$account, ...$this->emptyTotals()];
             $users[$userId] ??= [...$account, ...$this->emptyTotals()];
 
-            $provider = $this->providerCost($generation);
+            $provider = $this->calculatedProviderCost($generation);
             $spend = $provider?->multipliedBy(100 + PixelForgeService::MARKUP_PERCENT)
                 ->dividedBy(100, 4, RoundingMode::HalfUp);
 
@@ -48,25 +51,37 @@ class GenerationOperationsReport
             $this->addGeneration($users[$userId], $provider, $spend);
         }
 
-        krsort($days);
+        foreach ($usage['days'] ?? [] as $date => $day) {
+            if ($day['generations'] > 0 || ! BigDecimal::of($day['cost_usd'])->isZero()) {
+                $days[$date] ??= ['totals' => $this->emptyTotals(), 'users' => []];
+            }
+        }
 
+        krsort($days);
+        $monthlyProvider = $usage === null ? null : BigDecimal::of($usage['total']);
+        $providerCostsDiffer = $monthlyProvider !== null && ! $monthlyProvider->isEqualTo($totals['providerCost']->toScale(9, RoundingMode::HalfUp));
         $dailyRows = [];
         foreach ($days as $date => $day) {
+            $dailyProvider = $usage === null ? null : BigDecimal::of($usage['days'][$date]['cost_usd']);
+            $providerCostsDiffer = $providerCostsDiffer
+                || ($dailyProvider !== null && ! $dailyProvider->isEqualTo($day['totals']['providerCost']->toScale(9, RoundingMode::HalfUp)));
+
             $dailyRows[] = [
                 'date' => $date,
-                ...$this->formatTotals($day['totals']),
+                ...$this->formatTotals($day['totals'], $dailyProvider),
                 'users' => $this->formatUsers($day['users']),
             ];
         }
 
         return [
-            'totals' => $this->formatTotals($totals),
+            'totals' => $this->formatTotals($totals, $monthlyProvider),
             'days' => $dailyRows,
             'users' => $this->formatUsers($users),
+            'providerCostsDiffer' => $providerCostsDiffer,
         ];
     }
 
-    private function providerCost(ImageGeneration $generation): ?BigDecimal
+    private function calculatedProviderCost(ImageGeneration $generation): ?BigDecimal
     {
         $cost = BigDecimal::zero();
 
@@ -111,15 +126,15 @@ class GenerationOperationsReport
     }
 
     /** @param array{spend: BigDecimal, providerCost: BigDecimal, generations: int, missingPricing: int} $totals */
-    private function formatTotals(array $totals): array
+    private function formatTotals(array $totals, ?BigDecimal $provider): array
     {
-        $provider = $totals['providerCost']->toScale(4, RoundingMode::HalfUp);
+        $provider = $provider?->toScale(9, RoundingMode::HalfUp);
 
         return [
             ...$totals,
             'spend' => (string) $totals['spend']->toScale(4),
-            'providerCost' => (string) $provider,
-            'profit' => (string) $totals['spend']->minus($provider),
+            'providerCost' => $provider === null ? null : (string) $provider,
+            'profit' => $provider === null || $totals['missingPricing'] > 0 ? null : (string) $totals['spend']->minus($provider),
         ];
     }
 
@@ -128,6 +143,10 @@ class GenerationOperationsReport
     {
         uasort($users, fn (array $first, array $second): int => strcasecmp($first['name'], $second['name']) ?: $first['id'] <=> $second['id']);
 
-        return array_values(array_map($this->formatTotals(...), $users));
+        return array_values(array_map(function (array $user): array {
+            $provider = $user['generations'] === $user['missingPricing'] ? null : $user['providerCost'];
+
+            return $this->formatTotals($user, $provider);
+        }, $users));
     }
 }

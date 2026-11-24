@@ -11,7 +11,6 @@ const props = defineProps({
     report: { type: Object, required: true },
     month: { type: String, required: true },
     markupPercent: { type: Number, required: true },
-    timezone: { type: String, required: true },
     reportUrl: { type: String, required: true },
     logoutUrl: { type: String, required: true },
 });
@@ -55,7 +54,7 @@ function filterReport() {
                 <div>
                     <p class="mb-2 font-mono text-xs tracking-[.18em] text-primary uppercase">Financial overview</p>
                     <h1 class="text-4xl font-semibold tracking-[-.055em] sm:text-5xl">Operations</h1>
-                    <p class="mt-2 text-sm text-muted-foreground">Generation costs and profit by submission day and user.</p>
+                    <p class="mt-2 text-sm text-muted-foreground">Generation costs and profit by UTC completion day and user.</p>
                 </div>
                 <form class="grid gap-1.5" @submit.prevent="filterReport">
                     <label for="report-month" class="text-xs font-semibold text-muted-foreground">Reporting month</label>
@@ -79,7 +78,13 @@ function filterReport() {
                     <div>
                         <h2 id="breakdown-title" class="text-xl font-semibold tracking-tight">Cost breakdown</h2>
                         <p v-if="report.totals.missingPricing" class="mt-1 text-sm text-destructive">
-                            Totals exclude {{ report.totals.missingPricing }} completed {{ report.totals.missingPricing === 1 ? 'generation' : 'generations' }} with missing or invalid pricing data.
+                            Credit spend excludes {{ report.totals.missingPricing }} completed {{ report.totals.missingPricing === 1 ? 'generation' : 'generations' }} with missing pricing data. Profit is hidden where spend is incomplete.
+                        </p>
+                        <p v-if="report.totals.providerCost === null" class="mt-1 text-sm text-destructive">
+                            Pixelforge usage is unavailable. Reported provider costs and related profit are hidden.
+                        </p>
+                        <p v-else-if="report.providerCostsDiffer" class="mt-1 text-sm text-muted-foreground">
+                            Pixelforge’s billed totals differ from the costs calculated from local records. The difference isn’t assigned to users.
                         </p>
                     </div>
                     <div class="inline-flex rounded-lg border border-border bg-secondary p-1" role="group" aria-label="Group costs">
@@ -89,8 +94,8 @@ function filterReport() {
                     </div>
                 </div>
 
-                <div v-if="!report.days.length" class="rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
-                    <p class="font-semibold">No finished generations this month</p>
+                <div v-if="view === 'day' ? !report.days.length : !report.users.length" class="rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
+                    <p class="font-semibold">{{ view === 'day' ? 'No finished generations this month' : 'No local user activity this month' }}</p>
                     <p class="mt-1 text-sm text-muted-foreground">Choose another month to view its activity.</p>
                 </div>
                 <div v-else class="overflow-hidden rounded-xl border border-border bg-white">
@@ -109,7 +114,8 @@ function filterReport() {
                                     <p class="mt-1 break-all font-mono text-xs tabular-nums sm:text-sm">{{ amount(day, metric.key) }}</p>
                                 </div>
                             </summary>
-                            <OperationsUsersTable :users="day.users" />
+                            <OperationsUsersTable v-if="day.users.length" :users="day.users" />
+                            <p v-else class="border-t border-border px-4 py-4 text-sm text-muted-foreground sm:px-6">No local user records for this day.</p>
                         </details>
                     </template>
                     <OperationsUsersTable v-else :users="report.users" />
@@ -117,7 +123,7 @@ function filterReport() {
             </section>
 
             <p class="border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
-                USD · {{ timezone }}. Credit spend is calculated with the workspace’s {{ markupPercent }}% markup; it isn’t a record of credit debits. Provider costs use saved token usage and rates, not invoices. Pending generations are excluded; failed generations are treated as zero cost.
+                USD · UTC. Daily and monthly provider costs come from Pixelforge’s usage report for the configured API key. Pixelforge doesn’t report costs by user, so user costs use saved token usage and rates. Credit spend applies the workspace’s {{ markupPercent }}% markup and isn’t a record of credit debits.
             </p>
         </main>
     </div>

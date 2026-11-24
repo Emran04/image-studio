@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
@@ -94,6 +95,51 @@ class PixelForgeService
         return $this->successfulResponse($this->client()
             ->timeout(8)
             ->get(self::BASE_URL.'/generations/'.rawurlencode($pixelforgeId)));
+    }
+
+    /** @return array{total: string, days: array<string, array{cost_usd: string, generations: int}>}|null */
+    public function usageForMonth(CarbonImmutable $month): ?array
+    {
+        $start = $month->startOfMonth()->toDateString();
+        $end = $month->endOfMonth()->toDateString();
+        $money = ['required', 'string', 'regex:/\A[0-9]+\.[0-9]{9}\z/'];
+
+        try {
+            $payload = $this->successfulResponse($this->client()
+                ->connectTimeout(2)
+                ->timeout(4)
+                ->get(self::BASE_URL.'/usage', ['start_date' => $start, 'end_date' => $end]))->json();
+
+            $validator = Validator::make(is_array($payload) ? $payload : [], [
+                'object' => ['required', 'in:usage'],
+                'start_date' => ['required', Rule::in([$start])],
+                'end_date' => ['required', Rule::in([$end])],
+                'total.cost_usd' => $money,
+                'data' => ['required', 'array', 'list', 'size:'.$month->daysInMonth],
+                'data.*.date' => ['required', 'date_format:Y-m-d', 'distinct', 'after_or_equal:'.$start, 'before_or_equal:'.$end],
+                'data.*.cost_usd' => $money,
+                'data.*.generations' => ['required', 'integer:strict', 'min:0'],
+            ]);
+
+            if ($validator->fails()) {
+                throw new UnexpectedValueException('PixelForge returned invalid monthly usage data.');
+            }
+
+            $usage = $validator->validated();
+            $days = [];
+            foreach ($usage['data'] as $day) {
+                $days[$day['date']] = [
+                    'cost_usd' => $day['cost_usd'],
+                    'generations' => $day['generations'],
+                ];
+            }
+
+            return ['total' => $usage['total']['cost_usd'], 'days' => $days];
+        } catch (HttpClientException|RuntimeException $exception) {
+            report($exception);
+
+            return null;
+        }
     }
 
     /** @return array<string, mixed>|null */
