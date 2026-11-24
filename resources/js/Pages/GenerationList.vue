@@ -1,15 +1,18 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, ImageOff, Images, Plus, RefreshCw } from '@lucide/vue';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue';
 import { Button } from '@/components/ui/button';
+import { actualGenerationCost, estimateGenerationCost } from '@/lib/generationCost';
 
-defineProps({
+const props = defineProps({
     createUrl: { type: String, required: true },
     indexUrl: { type: String, required: true },
     logoutUrl: { type: String, required: true },
     generations: { type: Object, required: true },
+    pricing: { type: Object, default: null },
+    markupPercent: { type: Number, required: true },
 });
 
 const statuses = {
@@ -22,6 +25,17 @@ const statuses = {
 const refreshForm = useForm({});
 const activeGeneration = ref(null);
 const unavailableImages = ref(new Set());
+
+const entries = computed(() => props.generations.data.map((entry) => {
+    const options = { ...entry, markupPercent: props.markupPercent };
+    const pricing = props.pricing && { ...props.pricing, rates: entry.rates ?? props.pricing.rates };
+
+    return {
+        ...entry,
+        estimatedCost: estimateGenerationCost(pricing, options),
+        actualCost: actualGenerationCost(options),
+    };
+}));
 
 function statusFor(entry) {
     return statuses[entry.status] ?? { label: 'Unknown', color: 'bg-muted text-muted-foreground', detail: 'Image preview unavailable.' };
@@ -56,13 +70,13 @@ function refresh(entry) {
                 </Button>
             </section>
 
-            <section v-if="generations.data.length" aria-labelledby="history-title" class="grid gap-3">
+            <section v-if="entries.length" aria-labelledby="history-title" class="grid gap-3">
                 <h2 id="history-title" class="flex items-center gap-2 px-1 font-mono text-[0.65rem] font-medium tracking-[.16em] text-muted-foreground uppercase">
                     <ArrowDownLeft class="size-3.5" aria-hidden="true" />
                     Newest first
                 </h2>
                 <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    <li v-for="(entry, index) in generations.data" :key="entry.id" class="grid content-start overflow-hidden rounded-xl border border-border bg-white shadow-xs">
+                    <li v-for="(entry, index) in entries" :key="entry.id" class="grid content-start overflow-hidden rounded-xl border border-border bg-white shadow-xs">
                         <a v-if="entry.imageUrl && !unavailableImages.has(entry.imageUrl)" :href="entry.imageUrl" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open generated image in a new tab" class="group relative grid aspect-[4/3] place-items-center bg-[#eeeee9] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary">
                             <img :src="entry.imageUrl" :alt="entry.prompt.slice(0, 160)" :loading="index < 3 ? 'eager' : 'lazy'" decoding="async" referrerpolicy="no-referrer" class="absolute inset-0 size-full object-contain" @error="unavailableImages.add(entry.imageUrl)" />
                             <ArrowUpRight class="absolute top-3 right-3 size-7 rounded-md bg-white/90 p-1.5 text-primary shadow-xs group-hover:bg-white" aria-hidden="true" />
@@ -82,6 +96,18 @@ function refresh(entry) {
                                 <span class="font-mono text-[0.65rem] text-muted-foreground">{{ entry.size }}</span>
                             </div>
                             <p class="line-clamp-3 text-sm leading-relaxed wrap-anywhere">{{ entry.prompt }}</p>
+                            <dl class="grid gap-1 rounded-lg bg-[#f2f2f6] px-3 py-2 text-xs">
+                                <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                    <dt class="text-muted-foreground">Estimated cost</dt>
+                                    <dd v-if="entry.estimatedCost" class="font-mono tabular-nums">{{ entry.estimatedCost.min }}–{{ entry.estimatedCost.max }}</dd>
+                                    <dd v-else class="text-muted-foreground">Unavailable</dd>
+                                </div>
+                                <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                    <dt class="text-muted-foreground">Actual cost</dt>
+                                    <dd v-if="entry.actualCost !== null" class="font-mono font-semibold text-primary tabular-nums">{{ entry.actualCost }}</dd>
+                                    <dd v-else class="text-muted-foreground">{{ entry.refreshUrl ? 'Pending usage' : 'Unavailable' }}</dd>
+                                </div>
+                            </dl>
                             <div class="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
                                 <time v-if="entry.createdAt" :datetime="entry.createdAt" class="font-mono text-[0.65rem] text-muted-foreground">{{ entry.createdAt }}</time>
                                 <Button v-if="entry.refreshUrl" type="button" variant="outline" size="sm" class="ml-auto" :disabled="refreshForm.processing" @click="refresh(entry)">

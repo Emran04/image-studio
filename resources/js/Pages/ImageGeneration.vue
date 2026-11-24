@@ -7,10 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
+import { estimateGenerationCost } from '@/lib/generationCost';
 
 const props = defineProps({
     imageSizes: { type: Array, required: true },
     promptMaxLength: { type: Number, required: true },
+    quality: { type: String, required: true },
+    pricing: { type: Object, default: null },
+    markupPercent: { type: Number, required: true },
     submitUrl: { type: String, required: true },
     createUrl: { type: String, required: true },
     indexUrl: { type: String, required: true },
@@ -25,6 +29,13 @@ const suggestions = [
 
 const form = useForm({ prompt: '', size: props.imageSizes[0].value, image_url: '' });
 const promptLength = computed(() => Array.from(form.prompt).length);
+const costEstimate = computed(() => promptLength.value > props.promptMaxLength ? null : estimateGenerationCost(props.pricing, {
+    prompt: form.prompt,
+    size: form.size,
+    quality: props.quality,
+    hasReference: form.image_url.trim() !== '',
+    markupPercent: props.markupPercent,
+}));
 const messages = ref([]);
 const latestMessage = ref(null);
 
@@ -149,7 +160,7 @@ function sizeLabel(value) {
                         <p v-if="form.errors.prompt" id="generation-prompt-error" class="text-xs text-destructive" role="alert">{{ form.errors.prompt }}</p>
                     </div>
 
-                    <div class="grid items-end gap-3 sm:grid-cols-[minmax(10.5rem,1fr)_minmax(0,1.55fr)] lg:grid-cols-[minmax(11rem,1fr)_minmax(0,1.55fr)_auto]">
+                    <div class="grid items-end gap-3 sm:grid-cols-[minmax(10.5rem,1fr)_minmax(0,1.55fr)]">
                         <div class="grid min-w-0 gap-1.5 self-start [&_[data-slot=native-select-wrapper]]:w-full">
                             <label for="generation-size" class="text-xs font-semibold">Image size</label>
                             <NativeSelect id="generation-size" v-model="form.size" class="w-full bg-[#f8f8f6]" :aria-invalid="!!form.errors.size" :aria-describedby="form.errors.size ? 'generation-size-error' : undefined" @change="form.clearErrors('size')">
@@ -166,18 +177,29 @@ function sizeLabel(value) {
                             </label>
                             <div class="relative">
                                 <Link2 class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                                <Input id="generation-reference" v-model="form.image_url" type="url" maxlength="2048" placeholder="https://example.com/image.png" class="bg-[#f8f8f6] pl-9" :aria-invalid="!!form.errors.image_url" :aria-describedby="form.errors.image_url ? 'generation-reference-error' : undefined" @input="form.clearErrors('image_url')" />
+                                <Input id="generation-reference" v-model="form.image_url" type="url" maxlength="2048" class="bg-[#f8f8f6] pl-9" :aria-invalid="!!form.errors.image_url" :aria-describedby="form.errors.image_url ? 'generation-reference-error' : undefined" @input="form.clearErrors('image_url')" />
                             </div>
                             <p v-if="form.errors.image_url" id="generation-reference-error" class="text-xs text-destructive" role="alert">{{ form.errors.image_url }}</p>
                         </div>
-
-                        <Button type="submit" :disabled="form.processing" class="min-h-9 sm:col-span-2 sm:justify-self-end lg:col-span-1 lg:self-start lg:mt-[1.375rem]">
-                            <WandSparkles class="size-4" aria-hidden="true" />
-                            {{ form.processing ? 'Submitting…' : 'Submit prompt' }}
-                            <ArrowUp class="size-3.5" aria-hidden="true" />
-                        </Button>
+                    </div>
+                    <div class="grid gap-1 rounded-lg border border-[#d8d9eb] bg-[#f3f3fa] p-3">
+                        <p class="font-mono text-[0.65rem] font-medium tracking-[.12em] text-[#343a80] uppercase">Estimated cost <span class="text-muted-foreground">· USD</span></p>
+                        <output for="generation-prompt generation-size generation-reference" class="text-sm font-semibold tabular-nums">
+                            <template v-if="costEstimate">
+                                {{ costEstimate.min === costEstimate.max ? costEstimate.min : `${costEstimate.min}–${costEstimate.max}` }}
+                            </template>
+                            <template v-else-if="!pricing">Estimate temporarily unavailable</template>
+                            <template v-else-if="promptLength > promptMaxLength">Shorten your prompt to see an estimate</template>
+                            <template v-else>Enter a prompt to see an estimate</template>
+                        </output>
+                        <p class="text-xs leading-relaxed text-muted-foreground">Includes a {{ markupPercent }}% markup. Final cost depends on token usage; failed generations aren’t billed.</p>
                     </div>
                     <p v-if="form.errors.generation" class="text-xs text-destructive" role="alert">{{ form.errors.generation }}</p>
+                    <Button type="submit" :disabled="form.processing" class="min-h-9 sm:justify-self-end">
+                        <WandSparkles class="size-4" aria-hidden="true" />
+                        {{ form.processing ? 'Submitting…' : 'Submit prompt' }}
+                        <ArrowUp class="size-3.5" aria-hidden="true" />
+                    </Button>
                 </form>
 
                 <p class="-mt-2 text-center text-xs leading-relaxed text-muted-foreground">The status shown is the one PixelForge returned at submission.</p>

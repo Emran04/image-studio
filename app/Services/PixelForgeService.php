@@ -5,18 +5,23 @@ namespace App\Services;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use UnexpectedValueException;
 
 class PixelForgeService
 {
     public const int PROMPT_MAX_LENGTH = 4000;
+
+    public const string DEFAULT_QUALITY = 'medium';
 
     private const string BASE_URL = 'https://pixelforge.promptedit.dev/v1';
 
@@ -36,7 +41,7 @@ class PixelForgeService
     public function generate(
         string $prompt,
         string $size = '1024x1024',
-        string $quality = 'medium',
+        string $quality = self::DEFAULT_QUALITY,
         array $referenceImages = [],
         array $metadata = [],
         ?string $idempotencyKey = null,
@@ -89,6 +94,54 @@ class PixelForgeService
             ->get(self::BASE_URL.'/generations/'.rawurlencode($pixelforgeId)));
     }
 
+    /** @return array<string, mixed>|null */
+    public function pricing(): ?array
+    {
+        return Cache::remember('pixelforge.pricing', now()->addMinutes(10), function (): ?array {
+            try {
+                $payload = $this->successfulResponse($this->publicClient()
+                    ->connectTimeout(2)
+                    ->timeout(3)
+                    ->get(self::BASE_URL.'/pricing'))->json();
+
+                return $this->pricingAttributes($payload);
+            } catch (HttpClientException|RuntimeException $exception) {
+                report($exception);
+
+                return null;
+            }
+        });
+    }
+
+    /** @return array<string, mixed> */
+    private function pricingAttributes(mixed $payload): array
+    {
+        $quality = self::DEFAULT_QUALITY;
+        $rateRules = ['required', 'string', 'regex:/\A[0-9]+(?:\.[0-9]{1,9})?\z/'];
+        $validator = Validator::make(is_array($payload) ? $payload : [], [
+            'currency' => ['required', 'in:usd'],
+            'unit' => ['required', 'in:per_1m_tokens'],
+            'rates.input_text_tokens' => $rateRules,
+            'rates.input_image_tokens' => $rateRules,
+            'rates.output_tokens' => $rateRules,
+            'rates.reasoning_tokens' => $rateRules,
+            'tokens.characters_per_text_token' => ['required', 'integer:strict', 'min:1'],
+            'tokens.text_token_variance' => ['required', 'numeric:strict', 'between:0,1'],
+            'tokens.per_reference_image' => ['required', 'integer:strict', 'min:0'],
+            "tokens.output.$quality.1024x1024" => ['required', 'integer:strict', 'min:0'],
+            "tokens.output.$quality.1536x1024" => ['required', 'integer:strict', 'min:0'],
+            "tokens.output.$quality.1024x1536" => ['required', 'integer:strict', 'min:0'],
+            "tokens.reasoning.$quality.min" => ['required', 'integer:strict', 'min:0'],
+            "tokens.reasoning.$quality.max" => ['required', 'integer:strict', "gte:tokens.reasoning.$quality.min"],
+        ]);
+
+        if ($validator->fails()) {
+            throw new UnexpectedValueException('PixelForge returned invalid pricing data.');
+        }
+
+        return $validator->validated();
+    }
+
     private function client(): PendingRequest
     {
         $apiKey = config('services.pixelforge.key');
@@ -97,8 +150,12 @@ class PixelForgeService
             throw new RuntimeException('Configure PIXELFORGE_API_KEY before requesting image generation.');
         }
 
+        return $this->publicClient()->withToken($apiKey);
+    }
+
+    private function publicClient(): PendingRequest
+    {
         return $this->http->acceptJson()
-            ->withToken($apiKey)
             ->connectTimeout(5)
             ->withoutRedirecting();
     }

@@ -19,33 +19,43 @@ class ImageGenerationController extends Controller
 {
     private const array PENDING_STATUSES = ['queued', 'processing'];
 
+    private const int MARKUP_PERCENT = 25;
+
     private const array IMAGE_SIZES = [
         ['value' => '1024x1024', 'label' => 'Square', 'dimensions' => '1024 × 1024'],
         ['value' => '1536x1024', 'label' => 'Landscape', 'dimensions' => '1536 × 1024'],
         ['value' => '1024x1536', 'label' => 'Portrait', 'dimensions' => '1024 × 1536'],
     ];
 
-    public function create(): Response
+    public function create(PixelForgeService $pixelForge): Response
     {
         return Inertia::render('ImageGeneration', [
             ...$this->workspaceLinks(),
             'imageSizes' => self::IMAGE_SIZES,
             'promptMaxLength' => PixelForgeService::PROMPT_MAX_LENGTH,
+            'quality' => PixelForgeService::DEFAULT_QUALITY,
+            'pricing' => fn (): ?array => $pixelForge->pricing(),
+            'markupPercent' => self::MARKUP_PERCENT,
             'submitUrl' => route('generations.store', absolute: false),
         ]);
     }
 
-    public function index(Request $request): Response
+    public function index(Request $request, PixelForgeService $pixelForge): Response
     {
         $generations = $request->user()->imageGenerations()
             ->latest()
             ->orderByDesc('id')
-            ->simplePaginate(12, ['id', 'prompt', 'status', 'size', 'image_url', 'image_url_expires_at', 'created_at']);
+            ->simplePaginate(12, [
+                'id', 'prompt', 'status', 'size', 'quality', 'reference_images', 'usage', 'rates',
+                'image_url', 'image_url_expires_at', 'created_at',
+            ]);
 
         $page = $generations->currentPage();
 
         return Inertia::render('GenerationList', [
             ...$this->workspaceLinks(),
+            'pricing' => fn (): ?array => $generations->isEmpty() ? null : $pixelForge->pricing(),
+            'markupPercent' => self::MARKUP_PERCENT,
             'generations' => $generations->through(function (ImageGeneration $generation) use ($page): array {
                 $expired = $generation->image_url_expires_at?->isPast() ?? false;
                 $imageUrl = $generation->status === 'succeeded' && ! $expired
@@ -57,6 +67,10 @@ class ImageGenerationController extends Controller
                     'id' => $generation->id,
                     'prompt' => $generation->prompt,
                     'size' => $generation->size,
+                    'quality' => $generation->quality,
+                    'referenceCount' => count($generation->reference_images ?? []),
+                    'usage' => $generation->usage,
+                    'rates' => $generation->rates,
                     'status' => $generation->status,
                     'imageUrl' => $imageUrl,
                     'expired' => $expired,
@@ -133,6 +147,10 @@ class ImageGenerationController extends Controller
         $record->fill(Arr::only($attributes, [
             'status', 'image_url', 'image_url_expires_at', 'usage', 'error', 'started_at', 'completed_at',
         ]));
+
+        if ($record->rates === null && isset($attributes['rates'])) {
+            $record->rates = $attributes['rates'];
+        }
 
         $ownedGenerations->whereKey($record->getKey())->where('status', $record->getOriginal('status'))
             ->update($record->getDirty());

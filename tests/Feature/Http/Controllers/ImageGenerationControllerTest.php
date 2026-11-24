@@ -14,10 +14,33 @@ beforeEach(function () {
     Http::preventStrayRequests();
 });
 
+function pixelForgePricingPayload(): array
+{
+    return [
+        'currency' => 'usd',
+        'unit' => 'per_1m_tokens',
+        'rates' => [
+            'input_text_tokens' => '5.00',
+            'input_image_tokens' => '10.00',
+            'output_tokens' => '40.00',
+            'reasoning_tokens' => '12.50',
+        ],
+        'tokens' => [
+            'characters_per_text_token' => 4,
+            'text_token_variance' => 0.15,
+            'per_reference_image' => 765,
+            'output' => ['medium' => ['1024x1024' => 1100, '1536x1024' => 1650, '1024x1536' => 1650]],
+            'reasoning' => ['medium' => ['min' => 200, 'max' => 2000]],
+        ],
+    ];
+}
+
 test('renders the image generation workspace with size options', function () {
     $this->actingAs(User::factory()->make());
     $this->withoutVite();
-    config(['inertia.ssr.enabled' => false]);
+    config(['inertia.ssr.enabled' => false, 'services.pixelforge.key' => null]);
+    $pricingUrl = 'https://pixelforge.promptedit.dev/v1/pricing';
+    Http::fake([$pricingUrl => Http::response(pixelForgePricingPayload())]);
 
     $response = $this->get(route('generations.create'));
 
@@ -26,16 +49,43 @@ test('renders the image generation workspace with size options', function () {
         ->has('imageSizes', 3)
         ->where('imageSizes.0.value', '1024x1024')
         ->where('promptMaxLength', 4000)
+        ->where('quality', 'medium')
+        ->where('markupPercent', 25)
+        ->where('pricing.rates.reasoning_tokens', '12.50')
+        ->where('pricing.tokens.output.medium.1536x1024', 1650)
         ->where('indexUrl', '/app/generations')
         ->where('submitUrl', '/app/generations')
         ->where('logoutUrl', '/logout')
     );
+    Http::assertSent(fn (Request $request): bool => $request->url() === $pricingUrl
+        && $request->method() === 'GET' && ! $request->hasHeader('Authorization'));
 });
+
+test('keeps the workspace usable when pricing is unavailable', function (array $body, int $status) {
+    $this->actingAs(User::factory()->make());
+    $this->withoutVite();
+    config(['inertia.ssr.enabled' => false]);
+    Http::fake(['https://pixelforge.promptedit.dev/v1/pricing' => Http::response($body, $status)]);
+
+    $response = $this->get(route('generations.create'));
+
+    $response->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+        ->component('ImageGeneration')
+        ->where('pricing', null)
+        ->where('submitUrl', '/app/generations')
+    );
+    Http::assertSentCount(1);
+})->with([
+    'pricing request failed' => [['error' => 'Unavailable'], 503],
+    'pricing response was incomplete' => [['currency' => 'usd'], 200],
+]);
 
 test('shows only the signed-in user’s generations, newest first, with available image links', function () {
     $this->withoutVite();
     config(['inertia.ssr.enabled' => false]);
     $this->freezeTime();
+    $pricingUrl = 'https://pixelforge.promptedit.dev/v1/pricing';
+    Http::fake([$pricingUrl => Http::response(pixelForgePricingPayload())]);
     $user = User::factory()->create();
     $expired = ImageGeneration::factory()->for($user)->create([
         'status' => 'succeeded',
@@ -47,35 +97,48 @@ test('shows only the signed-in user’s generations, newest first, with availabl
         'image_url' => 'https://pixelforge.promptedit.dev/images/ready.png',
         'image_url_expires_at' => now()->addHour(),
     ]);
-    $pending = ImageGeneration::factory()->for($user)->create();
+    $pending = ImageGeneration::factory()->for($user)->create([
+        'reference_images' => ['https://example.com/reference.png'],
+        'rates' => ['output_tokens' => '41.00'],
+    ]);
     ImageGeneration::factory()->create();
 
     $response = $this->actingAs($user)->get(route('generations.index'));
 
     $response->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
         ->component('GenerationList')
+        ->where('markupPercent', 25)
+        ->where('pricing.rates.output_tokens', '40.00')
         ->has('generations.data', 3)
         ->where('generations.data.0.id', $pending->id)
         ->where('generations.data.0.refreshUrl', "/app/generations/{$pending->id}/refresh?page=1")
+        ->where('generations.data.0.quality', 'medium')
+        ->where('generations.data.0.referenceCount', 1)
+        ->where('generations.data.0.rates.output_tokens', '41.00')
+        ->where('generations.data.0.usage', null)
         ->where('generations.data.1.id', $ready->id)
         ->where('generations.data.1.imageUrl', $ready->image_url)
         ->where('generations.data.2.id', $expired->id)
         ->where('generations.data.2.imageUrl', null)
         ->where('generations.data.2.expired', true)
     );
-    Http::assertNothingSent();
+    Http::assertSentCount(1);
 });
 
 test('requires sign-in to view the generation list', function () {
     $this->get(route('generations.index'))->assertRedirectToRoute('login');
 });
 
-test('checking a pending generation saves the finished image returned by PixelForge', function () {
+test('checking a pending generation saves the finished image and makes usage and rates available in the list', function () {
+    $this->withoutVite();
+    config(['inertia.ssr.enabled' => false]);
     $user = User::factory()->create();
     $generation = ImageGeneration::factory()->for($user)->create();
     $endpoint = "https://pixelforge.promptedit.dev/v1/generations/{$generation->pixelforge_id}";
     $imageUrl = "https://pixelforge.promptedit.dev/images/{$generation->pixelforge_id}.png?signature=example";
-    Http::fake([$endpoint => Http::response([
+    $usage = ['input_text_tokens' => 20, 'input_image_tokens' => 0, 'output_tokens' => 1100, 'reasoning_tokens' => 380, 'total_tokens' => 1500];
+    $rates = pixelForgePricingPayload()['rates'];
+    Http::fake(['https://pixelforge.promptedit.dev/v1/pricing' => Http::response([], 503), $endpoint => Http::response([
         'id' => $generation->pixelforge_id,
         'object' => 'generation',
         'status' => 'succeeded',
@@ -85,7 +148,8 @@ test('checking a pending generation saves the finished image returned by PixelFo
         'image_url' => $imageUrl,
         'image_url_expires_at' => '2026-11-25T14:03:29Z',
         'completed_at' => '2026-11-24T14:03:29Z',
-        'usage' => ['total_tokens' => 1500],
+        'usage' => $usage,
+        'rates' => $rates,
     ])]);
 
     $response = $this->actingAs($user)->post(route('generations.refresh', $generation));
@@ -101,7 +165,13 @@ test('checking a pending generation saves the finished image returned by PixelFo
         'image_url_expires_at' => '2026-11-25 14:03:29',
         'completed_at' => '2026-11-24 14:03:29',
     ]);
-    expect($generation->fresh()->usage)->toBe(['total_tokens' => 1500]);
+    $this->get(route('generations.index'))->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+        ->where('pricing', null)
+        ->where('generations.data.0.status', 'succeeded')
+        ->where('generations.data.0.usage', $usage)
+        ->where('generations.data.0.rates', $rates)
+        ->where('generations.data.0.refreshUrl', null)
+    );
 });
 
 test('does not check another user’s generation', function () {

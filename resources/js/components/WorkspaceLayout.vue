@@ -12,7 +12,7 @@ const props = defineProps({
 
 const links = [
     { key: 'create', label: 'Image Generation', url: props.createUrl, icon: ImagePlus, detail: 'Prompt studio' },
-    { key: 'index', label: 'Generation List', url: props.indexUrl, icon: Images, detail: 'Image archive' },
+    { key: 'index', label: 'Generation History', url: props.indexUrl, icon: Images, detail: 'Image archive' },
 ];
 const current = links.find((link) => link.key === props.active);
 const logoutForm = useForm({});
