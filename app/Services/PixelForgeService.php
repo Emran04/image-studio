@@ -15,7 +15,7 @@ use RuntimeException;
 
 class PixelForgeService
 {
-    private const string GENERATIONS_URL = 'https://pixelforge.promptedit.dev/v1/generations';
+    private const string BASE_URL = 'https://pixelforge.promptedit.dev/v1';
 
     public function __construct(private Factory $http) {}
 
@@ -84,7 +84,7 @@ class PixelForgeService
             ->connectTimeout(5)
             ->timeout(60)
             ->withoutRedirecting()
-            ->post(self::GENERATIONS_URL, $payload)
+            ->post(self::BASE_URL.'/generations', $payload)
             ->throw();
 
         if (! $response->successful()) {

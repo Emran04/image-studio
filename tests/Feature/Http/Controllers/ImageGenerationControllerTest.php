@@ -1,6 +1,11 @@
 <?php
 
+use App\Models\User;
 use Inertia\Testing\AssertableInertia;
+
+beforeEach(function () {
+    $this->actingAs(User::factory()->make());
+});
 
 test('renders the image generation workspace with size options', function () {
     $this->withoutVite();
@@ -12,6 +17,7 @@ test('renders the image generation workspace with size options', function () {
         ->has('imageSizes', 3)
         ->where('imageSizes.0.value', '1024x1024')
         ->where('submitUrl', '/app/generations')
+        ->where('logoutUrl', '/logout')
     );
 });
 

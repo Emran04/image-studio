@@ -1,8 +1,9 @@
 <script setup>
-import { Head } from '@inertiajs/vue3';
+import { Head, Link } from '@inertiajs/vue3';
 
 defineProps({
     appName: { type: String, required: true },
+    workspaceUrl: { type: String, required: true },
 });
 
 const stack = [
@@ -24,7 +25,7 @@ const stack = [
                     </svg>
                     {{ appName }}
                 </div>
-                <span class="font-mono text-xs tracking-widest uppercase">Laravel starter</span>
+                <Link :href="workspaceUrl" class="rounded-md border border-[#192d26]/20 px-4 py-2 text-sm font-semibold hover:bg-[#e9ebda]">Open workspace <span aria-hidden="true">↗</span></Link>
             </header>
 
             <main class="grid flex-1 items-center gap-10 py-12 md:grid-cols-2 lg:gap-20 lg:py-20">

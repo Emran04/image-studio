@@ -1,7 +1,7 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { nextTick, ref } from 'vue';
-import { ArrowDownLeft, ArrowRight, ArrowUp, Check, ImagePlus, Link2, Scan, Sparkles, WandSparkles } from '@lucide/vue';
+import { ArrowDownLeft, ArrowRight, ArrowUp, Check, ImagePlus, Link2, LogOut, Scan, Sparkles, WandSparkles } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 const props = defineProps({
     imageSizes: { type: Array, required: true },
     submitUrl: { type: String, required: true },
+    logoutUrl: { type: String, required: true },
 });
 
 const suggestions = [
@@ -19,6 +20,7 @@ const suggestions = [
 ];
 
 const form = useForm({ prompt: '', size: props.imageSizes[0].value, image_url: '' });
+const logoutForm = useForm({});
 const messages = ref([]);
 const latestMessage = ref(null);
 
@@ -94,10 +96,18 @@ function sizeLabel(value) {
                     <span class="hidden text-muted-foreground sm:inline" aria-hidden="true">/</span>
                     <span class="font-medium">Image Generation</span>
                 </div>
-                <span class="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 font-mono text-[0.6rem] tracking-wider text-muted-foreground uppercase">
-                    <Sparkles class="size-3 text-primary" aria-hidden="true" />
-                    Prompt studio
-                </span>
+                <div class="flex shrink-0 items-center gap-3">
+                    <span class="hidden items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 font-mono text-[0.6rem] tracking-wider text-muted-foreground uppercase lg:flex">
+                        <Sparkles class="size-3 text-primary" aria-hidden="true" />
+                        Prompt studio
+                    </span>
+                    <form :action="logoutUrl" method="post" @submit.prevent="logoutForm.post(logoutUrl)">
+                        <Button type="submit" variant="outline" size="sm" class="border-border bg-white" :disabled="logoutForm.processing">
+                            <LogOut class="size-4" aria-hidden="true" />
+                            {{ logoutForm.processing ? 'Signing out…' : 'Log out' }}
+                        </Button>
+                    </form>
+                </div>
             </header>
 
             <div class="mx-auto flex w-full max-w-[65rem] flex-1 flex-col gap-5 px-4 py-5 sm:px-8 md:py-7">

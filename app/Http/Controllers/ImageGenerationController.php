@@ -21,6 +21,7 @@ class ImageGenerationController extends Controller
         return Inertia::render('ImageGeneration', [
             'imageSizes' => self::IMAGE_SIZES,
             'submitUrl' => route('generations.store', absolute: false),
+            'logoutUrl' => route('logout', absolute: false),
         ]);
     }
 
